@@ -1,0 +1,169 @@
+let AbstractTrigger = require("AbstractTrigger");
+class MyTrigger extends AbstractTrigger {
+  execute(context, param) {
+    //获取参数
+    let data = param.data;
+    let appCode = "PU";
+    let ids = data.map((item, i) => {
+      return item.id;
+    });
+    if (ids.length == 0) {
+      return { message: "未选中数据" };
+    }
+    let snInSqlCond = "('" + ids.join("','") + "')";
+    let yonQl =
+      "select *,busType.name,busType.code, (select *,priceUOM.name,taxitems.code from arrivalOrders) arrivalOrders , org.name orgName,t1.name orignProvince,t2.name orignCity,t3.name destProvince,t4.name destCity from pu.arrivalorder.ArrivalOrder ";
+    yonQl += "left join  org.func.BaseOrg org on purchaseOrg = org.id ";
+    yonQl += "left join aa.regioncorp.RegionCorp t1 on extendFromProvince = t1.id ";
+    yonQl += "left join aa.regioncorp.RegionCorp t2 on extendFromCity = t2.id ";
+    yonQl += "left join aa.regioncorp.RegionCorp t3 on extendTargetProvince = t3.id ";
+    yonQl += "left join aa.regioncorp.RegionCorp t4 on extendTargetCity = t4.id ";
+    yonQl += "where id in " + snInSqlCond;
+    var res = ObjectStore.queryByYonQL(yonQl);
+    //筛选出整机的进行同步 不是整机的不用同步
+    res = res.filter((item, i) => {
+      if (item.busType_code != "B35001" && item.busType_code != "B35002") {
+        return item;
+      }
+    });
+    if (res.length == 0) {
+      return { message: "无需同步" };
+    }
+    //构造接口入参
+    let syncParam = [];
+    res.map((item, i) => {
+      let sysObj = {};
+      //到货单号
+      sysObj.orderNo = item.code;
+      //需求单号
+      sysObj.requisitionNo = item.extendReqno;
+      //客户名称 todo需要转成name
+      sysObj.consigneeName = item.orgName;
+      //收货人 todo 需要传什么内容
+      sysObj.consignee = item.extendConsignee;
+      //收货人联系电话
+      sysObj.consigneeTel = item.extendConCall;
+      //起始省份 todo名称
+      sysObj.orignProvince = item.orignProvince;
+      //起始城市
+      sysObj.orignCity = item.orignCity;
+      //目的省份
+      sysObj.destProvince = item.destProvince;
+      //目的城市
+      sysObj.destCity = item.destCity;
+      //客户收货地址 收货详细地址
+      sysObj.consigneeAdr = item.extendClientAddr;
+      //运输方式 //普通汽运、陆运（专车、普通）、海运、空运
+      if (item.extendTransType && item.extendTransType == "1") {
+        sysObj.transportType = "普通汽运";
+      } else if (item.extendTransType && item.extendTransType == "2") {
+        sysObj.transportType = "陆运（专车、普通）";
+      } else if (item.extendTransType && item.extendTransType == "3") {
+        sysObj.transportType = "海运";
+      } else if (item.extendTransType && item.extendTransType == "4") {
+        sysObj.transportType = "空运";
+      }
+      //车型 1 of10Ton、1 of 53FEET（一般整车运输用得上）、零担，中外运提供车型对照表
+      if (item.extendCarType && item.extendCarType == "1") {
+        sysObj.carType = "1 of 3TON";
+      } else if (item.extendCarType && item.extendCarType == "2") {
+        sysObj.carType = "1 of 12TON";
+      } else if (item.extendCarType && item.extendCarType == "3") {
+        sysObj.carType = "1 of 5TON";
+      } else if (item.extendCarType && item.extendCarType == "4") {
+        sysObj.carType = "1 of 10TON";
+      } else if (item.extendCarType && item.extendCarType == "5") {
+        sysObj.carType = "1 of 8TON";
+      } else if (item.extendCarType && item.extendCarType == "6") {
+        sysObj.carType = "1 of 1.5TON";
+      } else if (item.extendCarType && item.extendCarType == "7") {
+        sysObj.carType = "1 of 40FEET";
+      } else if (item.extendCarType && item.extendCarType == "8") {
+        sysObj.carType = "1 of 53FEET";
+      } else if (item.extendCarType && item.extendCarType == "9") {
+        sysObj.carType = "零担";
+      }
+      sysObj.totalWeight = item.extendWeight;
+      sysObj.totalVolume = item.extendVolume;
+      sysObj.totalPieces = item.extendCount;
+      sysObj.weightUom = item.extendWeightUnit;
+      sysObj.volumeUom = item.extendVoluUnit;
+      //客户备注
+      sysObj.customerRemark = item.extendClientRemark;
+      //订单状态 0:作废，1:新增，作废时，重新推送的单，发货单号不会变化
+      sysObj.active = "0";
+      //服务等级  标准、加急
+      if (item.extendLevel && item.extendLevel == "1") {
+        sysObj.serviceLevel = "标准";
+      } else if (item.extendLevel && item.extendLevel == "2") {
+        sysObj.serviceLevel = "加急";
+      }
+      //提货时间
+      sysObj.deliveryTime = item.extendPickDate;
+      //提货联系人
+      sysObj.deliveryContactName = item.extendPickMan;
+      // 提货联系电话
+      sysObj.deliveryContactTel = item.extendPickMan;
+      //提货地址
+      sysObj.deliveryContactAdr = item.extendPickAddr;
+      //表体字段
+      let details = [];
+      let arrivalOrdersList = item.arrivalOrders;
+      if (!arrivalOrdersList || arrivalOrdersList == null) {
+        syncParam.push(sysObj);
+        return;
+      }
+      arrivalOrdersList.map((child, j) => {
+        let detail = {};
+        //行号
+        detail.seqNo = "" + child.lineno;
+        //箱名 todo 数算互联有箱名，中融信通没箱名
+        detail.packageNo = child.extendPackageNo;
+        //订单类型
+        //物料编码
+        detail.itemCode = child.supplier_productcode;
+        //物料描述
+        detail.itemDesc = child.supplier_productname;
+        //发货数量Qty
+        detail.qty = child.purchaseSendQty;
+        //单位UOM
+        detail.uom = child.priceUOM_name;
+        //备注Remark
+        detail.REMARK = child.memo;
+        //明细重量
+        detail.detailWeight = child.extendDetailWeight;
+        //明细体积
+        detail.detailVolume = child.extendDetailVolume;
+        //重量单位
+        detail.detailWeightUom = child.extendDetailWeightUom;
+        //体积单位
+        detail.detailVolumeUom = child.extendDetailVolumeUom;
+        details.push(detail);
+      });
+      sysObj.detail = details;
+      syncParam.push(sysObj);
+    });
+    return { message: "同步成功" };
+    function getDate() {
+      var timezone = 8; //目标时区时间，东八区
+      var offset_GMT = new Date().getTimezoneOffset(); //本地时间和格林威治的时间差，单位为分钟
+      var nowDate = new Date().getTime(); //本地时间距 1970 年 1 月 1 日午夜(GMT 时间)之间的毫秒数
+      var date = new Date(nowDate + offset_GMT * 60 * 1000 + timezone * 60 * 60 * 1000);
+      var timeStr = date.getFullYear() + "-";
+      if (date.getMonth() < 9) {
+        // 月份从0开始的
+        timeStr += "0";
+      }
+      timeStr += date.getMonth() + 1 + "-";
+      timeStr += date.getDate() < 10 ? "0" + date.getDate() : date.getDate();
+      timeStr += " ";
+      timeStr += date.getHours() < 10 ? "0" + date.getHours() : date.getHours();
+      timeStr += ":";
+      timeStr += date.getMinutes() < 10 ? "0" + date.getMinutes() : date.getMinutes();
+      timeStr += ":";
+      timeStr += date.getSeconds() < 10 ? "0" + date.getSeconds() : date.getSeconds();
+      return timeStr;
+    }
+  }
+}
+exports({ entryPoint: MyTrigger });

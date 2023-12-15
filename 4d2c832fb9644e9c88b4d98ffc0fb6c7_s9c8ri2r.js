@@ -1,0 +1,9 @@
+let AbstractAPIHandler = require("AbstractAPIHandler");
+class MyAPIHandler extends AbstractAPIHandler {
+  execute(request) {
+    var id = request.id;
+    let url = "https://www.example.com/" + id; //传参要写到这里
+    let apiResponse = openLinker("GET", url, "GT3407AT1", JSON.stringify({})); //TODO:注意填写应用编码（请看注意事项）；最后一个参数填写{}即可，不需要改动
+  }
+}
+exports({ entryPoint: MyAPIHandler });
