@@ -1,0 +1,2 @@
+var object = { changdu: "2434", kuandu: "234345", gaodu: "976642", zhongliang: "111108" }; //--对应的实体数据
+var res = ObjectStore.insert("GT80755AT5.GT80755AT5.detail", object, "a592bc1c"); //--保存数据 参数1：数据建模的URI  参数2：实体数据   参数3：表单编码

@@ -1,0 +1,15 @@
+viewModel.get("extendsjdpdytj ") &&
+  viewModel.get("extendsjdpdytj ").on("afterValueChange", function (data) {
+    // 商机判断条件--值改变后
+    var selectCount = 0;
+    if (data == undefined) {
+      selectCount = 0;
+    } else {
+      if (data.value) {
+        selectCount = data.value.length;
+      } else {
+        selectCount = data.length;
+      }
+    }
+    viewModel.get("extendsjpd").setValue(selectCount > 2 ? "重点商机" : "一般商机");
+  });

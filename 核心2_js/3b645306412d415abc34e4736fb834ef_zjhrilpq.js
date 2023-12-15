@@ -1,0 +1,297 @@
+let AbstractAPIHandler = require("AbstractAPIHandler");
+class MyAPIHandler extends AbstractAPIHandler {
+  execute(request) {
+    //获取token
+    var hmd_req_type = "POST";
+    //加密参数----------------------------begin
+    var hexcase = 0;
+    var b64pad = "";
+    var chrsz = 8;
+    var token = getToken();
+    //加密参数----------------------------end
+    var contenttype = "application/json;charset=UTF-8";
+    var bus_bas_url = "https://www.example.com/" + token;
+    var bus_bas_list_url = "https://www.example.com/" + token;
+    var header = {
+      "Content-Type": contenttype
+    };
+    //一级物料
+    var level1 = new Array();
+    //二级物料
+    var level2 = new Array();
+    //三级物料
+    var level3 = new Array();
+    //循环依次添加进入所属物料等级
+    var reqdata = request.data;
+    var updateSqlData = new Array();
+    reqdata.forEach((data) => {
+      data.isSynch = "1";
+      updateSqlData.push(data);
+      switch (data.levels) {
+        case "1":
+          level1.push(convertdata(data, ""));
+          break;
+        case "2":
+          level2.push(convertdata(data, ""));
+          break;
+        case "3":
+          level3.push(convertdata(data, ""));
+          break;
+        default:
+          break;
+      }
+    });
+    //开始持久化
+    //一级持久化---------------------------------------------------
+    level1.forEach((data) => {
+      let apiResponse = postman(hmd_req_type, bus_bas_url, JSON.stringify(header), JSON.stringify(data));
+      var s = 111;
+    });
+    var listbody = {
+      treename: "pc.cls.ManagementClass"
+    };
+    if (level2.length > 0) {
+      //二级持久化---------------------------------------------------
+      //根据父分类编码查询id----只能查询所有没办法了，接口无法传其他参数
+      //获取所有分类
+      var listclass = postman(hmd_req_type, bus_bas_list_url, JSON.stringify(header), JSON.stringify(listbody));
+      var listclassData = JSON.parse(listclass).data;
+      var listclassMap = {};
+      var listclassMap = busAllData(listclassData, listclassMap);
+      var currentUseParentIdsLevel2 = new Array();
+      //变更保存实体--加入父类id
+      level2.forEach((data) => {
+        var currentCode = data.data.hmdparent;
+        if (listclassMap.hasOwnProperty(currentCode)) {
+          currentUseParentIdsLevel2.push(data);
+          data.data.parent = listclassMap[currentCode].id;
+          let apiResponse = postman(hmd_req_type, bus_bas_url, JSON.stringify(header), JSON.stringify(data));
+        }
+      });
+      //更新父类是否末级为否
+      currentUseParentIdsLevel2.forEach((data) => {
+        data.isEnd = false;
+        let apiResponse = postman(hmd_req_type, bus_bas_url, JSON.stringify(header), JSON.stringify(data));
+      });
+    }
+    if (level3.length > 0) {
+      //三级持久化---------------------------------------------------
+      //根据父分类编码查询id
+      var listclasslevel3 = postman(hmd_req_type, bus_bas_list_url, JSON.stringify(header), JSON.stringify(listbody));
+      var listclassData3 = JSON.parse(listclasslevel3).data;
+      var listclassMap3 = {};
+      var listclassMap3 = busAllData(listclassData3, listclassMap3);
+      var currentUseParentIdsLevel3 = new Array();
+      //变更保存实体--加入父类id
+      level3.forEach((data) => {
+        var currentCode = data.data.hmdparent;
+        if (listclassMap3.hasOwnProperty(currentCode)) {
+          currentUseParentIdsLevel3.push(data);
+          data.data.parent = listclassMap3[currentCode].id;
+          let apiResponse = postman(hmd_req_type, bus_bas_url, JSON.stringify(header), JSON.stringify(data));
+        }
+      });
+      //更新父类是否末级为否
+      currentUseParentIdsLevel3.forEach((data) => {
+        data.isEnd = false;
+        let apiResponse = postman(hmd_req_type, bus_bas_url, JSON.stringify(header), JSON.stringify(data));
+      });
+    }
+    //批量更新是否已同步
+    var res = ObjectStore.updateBatch("GT1281AT3.GT1281AT3.goods_type", updateSqlData);
+    function busAllData(listclassData, listclassMap) {
+      listclassData.forEach((data) => {
+        listclassMap[data.code] = data;
+        if (data.children != null) {
+          busAllData(data.children, listclassMap);
+        }
+      });
+      return listclassMap;
+    }
+    //转换数据
+    function convertdata(data, parentid) {
+      var cudata = new Object();
+      cudata.name = data.name;
+      cudata.code = data.hmdid;
+      cudata.parent = parentid;
+      cudata.isEnd = data.isEnd == undefined ? true : data.isEnd;
+      cudata._status = "Insert";
+      cudata.stopstatus = 0;
+      cudata.hmdparent = data.hmdparent;
+      var recudata = { data: cudata };
+      return recudata;
+    }
+    function getToken() {
+      var appcontext = JSON.parse(AppContext());
+      var tenantId = "yourIdHere";
+      var hmd_req_resources_path = "/homedo-yonsuite-service/getToken?tenantId=" + tenantId;
+      //注意需要大写
+      var hmd_req_type = "GET";
+      //需要处理部分------------------------end
+      var hmd_base_path = "https://open-api.homedo.com";
+      var hmd_AccessKey = "yourKeyHere";
+      var hmd_AccessSecret = "yourSecretHere";
+      var hmd_contenttype = "application/json;charset=UTF-8";
+      var hmd_md5 = "";
+      var hmd_gmtdate = datetostring();
+      var hmd_Authorization = "OPENPLATFORM ";
+      var encodeStr = hmd_req_type.concat("\n", hmd_md5, "\n", hmd_contenttype, "\n", hmd_gmtdate, "\n", hmd_req_resources_path);
+      //开始加密
+      var signature = b64_hmac_sha1(hmd_AccessSecret, encodeStr) + "=";
+      //使用Authorization
+      var buildAuthorization = hmd_Authorization.concat(hmd_AccessKey, ":", signature);
+      //组装请求头
+      let header = {
+        Authorization: buildAuthorization,
+        Date: hmd_gmtdate,
+        "Content-Type": hmd_contenttype,
+        CanonicalizedResource: hmd_req_resources_path
+      };
+      //请求数据
+      let apiResponse = postman(hmd_req_type, hmd_base_path.concat(hmd_req_resources_path), JSON.stringify(header), null);
+      var token = JSON.parse(apiResponse).data.token;
+      return token;
+    }
+    //数据转换-----------------------end
+    function datetostring() {
+      var date = new Date();
+      var hmd_dategmtstr = date.toString();
+      var gmtdatearr = hmd_dategmtstr.split(/ /);
+      var chours = addZero(date.getHours().toString());
+      var minutes = addZero(date.getMinutes().toString());
+      var Seconds = addZero(date.getSeconds().toString());
+      var hours = chours + ":" + minutes + ":" + Seconds;
+      var gmtdate = gmtdatearr[0] + ", " + gmtdatearr[2] + " " + gmtdatearr[1] + " " + gmtdatearr[3] + " " + hours + " " + gmtdatearr[5].substring(0, gmtdatearr[5].length - 5);
+      return gmtdate;
+    }
+    function addZero(s) {
+      var result = "";
+      if (s.length == 1) {
+        result = "0" + s;
+      } else {
+        result = s;
+      }
+      return result;
+    }
+    function hex_sha1(s) {
+      return binb2hex(core_sha1(str2binb(s), s.length * chrsz));
+    }
+    function b64_sha1(s) {
+      return binb2b64(core_sha1(str2binb(s), s.length * chrsz));
+    }
+    function str_sha1(s) {
+      return binb2str(core_sha1(str2binb(s), s.length * chrsz));
+    }
+    function hex_hmac_sha1(key, data) {
+      return binb2hex(core_hmac_sha1(key, data));
+    }
+    function b64_hmac_sha1(key, data) {
+      return binb2b64(core_hmac_sha1(key, data));
+    }
+    function str_hmac_sha1(key, data) {
+      return binb2str(core_hmac_sha1(key, data));
+    }
+    function sha1_vm_test() {
+      return hex_sha1("abc") == "a9993e364706816aba3e25717850c26c9cd0d89d";
+    }
+    function core_sha1(x, len) {
+      x[len >> 5] |= 0x80 << (24 - (len % 32));
+      x[(((len + 64) >> 9) << 4) + 15] = len;
+      var w = Array(80);
+      var a = 1732584193;
+      var b = -271733879;
+      var c = -1732584194;
+      var d = 271733878;
+      var e = -1009589776;
+      for (var i = 0; i < x.length; i += 16) {
+        var olda = a;
+        var oldb = b;
+        var oldc = c;
+        var oldd = d;
+        var olde = e;
+        for (var j = 0; j < 80; j++) {
+          if (j < 16) w[j] = x[i + j];
+          else w[j] = rol(w[j - 3] ^ w[j - 8] ^ w[j - 14] ^ w[j - 16], 1);
+          var t = safe_add(safe_add(rol(a, 5), sha1_ft(j, b, c, d)), safe_add(safe_add(e, w[j]), sha1_kt(j)));
+          e = d;
+          d = c;
+          c = rol(b, 30);
+          b = a;
+          a = t;
+        }
+        a = safe_add(a, olda);
+        b = safe_add(b, oldb);
+        c = safe_add(c, oldc);
+        d = safe_add(d, oldd);
+        e = safe_add(e, olde);
+      }
+      return Array(a, b, c, d, e);
+    }
+    function sha1_ft(t, b, c, d) {
+      if (t < 20) return (b & c) | (~b & d);
+      if (t < 40) return b ^ c ^ d;
+      if (t < 60) return (b & c) | (b & d) | (c & d);
+      return b ^ c ^ d;
+    }
+    function sha1_kt(t) {
+      return t < 20 ? 1518500249 : t < 40 ? 1859775393 : t < 60 ? -1894007588 : -899497514;
+    }
+    function core_hmac_sha1(key, data) {
+      var bkey = str2binb(key);
+      if (bkey.length > 16) bkey = core_sha1(bkey, key.length * chrsz);
+      var ipad = Array(16),
+        opad = Array(16);
+      for (var i = 0; i < 16; i++) {
+        ipad[i] = bkey[i] ^ 0x36363636;
+        opad[i] = bkey[i] ^ 0x5c5c5c5c;
+      }
+      var hash = core_sha1(ipad.concat(str2binb(data)), 512 + data.length * chrsz);
+      return core_sha1(opad.concat(hash), 512 + 160);
+    }
+    function safe_add(x, y) {
+      var lsw = (x & 0xffff) + (y & 0xffff);
+      var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+      return (msw << 16) | (lsw & 0xffff);
+    }
+    function rol(num, cnt) {
+      return (num << cnt) | (num >>> (32 - cnt));
+    }
+    function str2binb(str) {
+      var bin = Array();
+      var mask = (1 << chrsz) - 1;
+      for (var i = 0; i < str.length * chrsz; i += chrsz) bin[i >> 5] |= (str.charCodeAt(i / chrsz) & mask) << (24 - (i % 32));
+      return bin;
+    }
+    function binb2str(bin) {
+      var str = "";
+      var mask = (1 << chrsz) - 1;
+      for (var i = 0; i < bin.length * 32; i += chrsz) str += String.fromCharCode((bin[i >> 5] >>> (24 - (i % 32))) & mask);
+      return str;
+    }
+    function binb2hex(binarray) {
+      var hex_tab = hexcase ? "0123456789ABCDEF" : "0123456789abcdef";
+      var str = "";
+      for (var i = 0; i < binarray.length * 4; i++) {
+        str += hex_tab.charAt((binarray[i >> 2] >> ((3 - (i % 4)) * 8 + 4)) & 0xf) + hex_tab.charAt((binarray[i >> 2] >> ((3 - (i % 4)) * 8)) & 0xf);
+      }
+      return str;
+    }
+    function binb2b64(binarray) {
+      var tab = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+      var str = "";
+      for (var i = 0; i < binarray.length * 4; i += 3) {
+        var triplet =
+          (((binarray[i >> 2] >> (8 * (3 - (i % 4)))) & 0xff) << 16) |
+          (((binarray[(i + 1) >> 2] >> (8 * (3 - ((i + 1) % 4)))) & 0xff) << 8) |
+          ((binarray[(i + 2) >> 2] >> (8 * (3 - ((i + 2) % 4)))) & 0xff);
+        for (var j = 0; j < 4; j++) {
+          if (i * 8 + j * 6 > binarray.length * 32) str += b64pad;
+          else str += tab.charAt((triplet >> (6 * (3 - j))) & 0x3f);
+        }
+      }
+      return str;
+    }
+    return { apiResponse: "success" };
+  }
+}
+exports({ entryPoint: MyAPIHandler });

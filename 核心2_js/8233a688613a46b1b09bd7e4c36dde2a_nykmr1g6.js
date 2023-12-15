@@ -1,0 +1,160 @@
+let AbstractAPIHandler = require("AbstractAPIHandler");
+class MyAPIHandler extends AbstractAPIHandler {
+  execute(request) {
+    let venderinnfo = request.venderinnfo;
+    if (venderinnfo == undefined || venderinnfo == "") {
+      throw new Error("入参供应商档案错误！");
+    }
+    let d = new Date(),
+      month = "" + (d.getMonth() + 1),
+      day = "" + d.getDate(),
+      year = d.getFullYear();
+    if (month.length < 2) month = "0" + month;
+    if (day.length < 2) day = "0" + day;
+    let vouchdate = [year, month, day].join("-");
+    vouchdate = vouchdate.substring(0, 10);
+    let productId = request.productId;
+    let supplierId = request.supplierId;
+    let orgId = request.orgId;
+    let res = AppContext();
+    let obj = JSON.parse(res);
+    let tid = obj.currentUser.tenantId;
+    let apiPreAndAppCode = extrequire("GT22176AT10.publicFunction.getApiPreAndAppCode").execute();
+    let gspUrl = apiPreAndAppCode.apiPrefix + "/" + tid + "/001/00001/gsp/getSupLicInfo";
+    let gspBody = { orgId: orgId, supplierId: supplierId };
+    let apiResponseSupplier = openLinker("POST", gspUrl, "GT22176AT10", JSON.stringify(gspBody));
+    venderinnfo = JSON.parse(apiResponseSupplier);
+    let parasql = "select isgspmanage,isgspzz,poacontrol from GT22176AT10.GT22176AT10.SY01_gspmanparamsv3 where org_id  = " + orgId;
+    let parainfos = ObjectStore.queryByYonQL(parasql, "sy01");
+    if (parainfos.length == 0) {
+      return { res: true }; //不需要控制
+    }
+    let poacontrol = parainfos[0].poacontrol;
+    let isgspmanage = parainfos[0].isgspmanage;
+    let isgspzz = parainfos[0].isgspzz;
+    if (isgspmanage == "00001") {
+      isgspmanage = true;
+    }
+    if (isgspzz == "00001") {
+      isgspzz = true;
+    }
+    let sql = "select * from GT22176AT10.GT22176AT10.SY01_material_file where org_id  = " + orgId + " and material = " + productId;
+    let prodInfos = ObjectStore.queryByYonQL(sql, "sy01");
+    if (prodInfos.length == 0) {
+      throw new Error("医药物料档案中未找到对应物料!");
+    }
+    let prodInfo = prodInfos[0];
+    let gsp_spfl = prodInfo.materialType; //商品分类
+    let jx = prodInfo.dosageForm; //剂型id
+    //证照控制
+    if (isgspzz) {
+      let prodMap = new Map(); //物料
+      let gspTyepMap = new Map(); //商品类别
+      let drugFormMap = new Map(); //剂型
+      //查询证照
+      if (venderinnfo.SY01_supplier_file_licenseList != undefined && venderinnfo.SY01_supplier_file_licenseList.length > 0) {
+        let zzMap = new Map();
+        for (let i = 0; i < venderinnfo.SY01_supplier_file_licenseList.length; i++) {
+          let licese = venderinnfo.SY01_supplier_file_licenseList[i];
+          let liceseSub = licese.SY01_supplier_file_license_authList; //子表
+          let startDate = licese.issueDate; //证照颁发日期
+          let endDate = licese.validUntil; //证照有效期至
+          //时间字符串比较
+          startDate = startDate.substring(0, 10);
+          endDate = endDate.substring(0, 10);
+          if (vouchdate >= startDate && vouchdate <= endDate) {
+            zzMap.set(licese.id, endDate);
+            if (licese.authType == "1" && liceseSub != null) {
+              //商品
+              liceseSub.forEach((item) => {
+                prodMap.set(item.material, item.material);
+              });
+            } else if (licese.authType == "2" && liceseSub != null) {
+              //商品类别
+              liceseSub.forEach((item) => {
+                gspTyepMap.set(item.materialType, item.materialType);
+              });
+            } else if (licese.authType == "3" && liceseSub != null) {
+              //剂型
+              liceseSub.forEach((item) => {
+                drugFormMap.set(item.dosageForm, item.dosageForm);
+              });
+            }
+          }
+        }
+        if (zzMap.size <= 0) {
+          throw new Error("供应商不在证照有效期内！物料【" + prodInfo.materialName + "】");
+        }
+      } else {
+        throw new Error("供应商没有设置相关证照！");
+      }
+      if (!prodMap.has(productId) && !gspTyepMap.has(gsp_spfl) && !drugFormMap.has(jx)) {
+        throw new Error("供应商无物料【" + prodInfo.materialName + "】相关证照。");
+      }
+    }
+    //授权委托控制
+    if (poacontrol == "1") {
+      if (request.extend_saleman == undefined) {
+        throw new Error("启用了授权委托控制,请先填写【授权委托人/对方业务员】！");
+      }
+      let Salesman = request.extend_saleman;
+      if (venderinnfo.SY01_supplier_file_certifyList != undefined && venderinnfo.SY01_supplier_file_certifyList.length > 0) {
+        let prodMap = new Map();
+        let gspTyepMap = new Map();
+        let drugFormMap = new Map();
+        let zzMap = new Map();
+        let b_nothave_ywy = true;
+        for (let ii = 0; ii < venderinnfo.SY01_supplier_file_certifyList.length; ii++) {
+          let authorityScope_1 = venderinnfo.SY01_supplier_file_certifyList[ii];
+          if (authorityScope_1.salesman == Salesman) {
+            b_nothave_ywy = false;
+            break;
+          }
+        }
+        if (b_nothave_ywy) {
+          throw new Error("当前对方业务员没有在供应商授权委托书中设置！");
+        }
+        for (let i = 0; i < venderinnfo.SY01_supplier_file_certifyList.length; i++) {
+          let authorityScope_2 = venderinnfo.SY01_supplier_file_certifyList[i];
+          let startDate = authorityScope_2.startDate; //开始时间
+          let endDate = authorityScope_2.endDate; //结束时间
+          startDate = startDate.substring(0, 10);
+          endDate = endDate.substring(0, 10);
+          if (vouchdate >= startDate && vouchdate <= endDate) {
+            let authorityScope = venderinnfo.SY01_supplier_file_certifyList[i];
+            let authorityScopeSub = authorityScope_2.SY01_supplier_file_certify_authList;
+            zzMap.set(authorityScope.id, endDate);
+            if (authorityScope.salesman == Salesman) {
+              if (authorityScope.authType == "1" && authorityScopeSub != null) {
+                //商品
+                authorityScopeSub.forEach((item) => {
+                  prodMap.set(item.material, item.material);
+                });
+              } else if (authorityScope.authType == "2" && authorityScopeSub != null) {
+                //商品类别
+                authorityScopeSub.forEach((item) => {
+                  gspTyepMap.set(item.materialType, item.materialType);
+                });
+              } else if (authorityScope.authType == "3" && authorityScopeSub != null) {
+                //剂型
+                authorityScopeSub.forEach((item) => {
+                  drugFormMap.set(item.dosageForm, item.dosageForm);
+                });
+              }
+            }
+          }
+        }
+        if (zzMap.size <= 0) {
+          throw new Error("对方业务员不在授权委托期内！物料【" + prodInfor.materialName + "】");
+        }
+        if (!prodMap.has(productId) && !gspTyepMap.has(gsp_spfl) && !drugFormMap.has(jx)) {
+          throw new Error("对方业务员无物料【" + prodInfor.materialName + "】相关范围授权委托");
+        }
+      } else {
+        throw new Error("对方业务员无物料【" + prodInfor.materialName + "】相关范围授权委托");
+      }
+    }
+    return { res: true };
+  }
+}
+exports({ entryPoint: MyAPIHandler });

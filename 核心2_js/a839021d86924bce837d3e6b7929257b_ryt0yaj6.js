@@ -1,0 +1,58 @@
+let AbstractTrigger = require("AbstractTrigger");
+class MyTrigger extends AbstractTrigger {
+  execute(context, param) {
+    // 获取总体需求成本实体
+    var ztxqcbdh = param.data[0];
+    if (!!ztxqcbdh) {
+      for (var i = 0; i < ztxqcbdh.B0002List.length; i++) {
+        if (!!ztxqcbdh.B0002List[i].sourcechild_id) {
+          var res = ObjectStore.queryByYonQL("select * from GT64173AT6.GT64173AT6.D0002 where id='" + ztxqcbdh.B0002List[i].sourcechild_id + "'");
+          if (res.length > 0) {
+            //判断本单据和上游子单据金额
+            if (ztxqcbdh.B0002List[i].hanshuijine + res[0].yituizongjine > res[0].hanshuijine) {
+              throw new Error(
+                "剩余未推金额不足，对应单据" +
+                  ztxqcbdh.B0002List[i].code +
+                  "当前金额" +
+                  ztxqcbdh.B0002List[i].zongjine +
+                  ",未推金额" +
+                  res[0].weituizongjine +
+                  ",已推金额" +
+                  res[0].yituizongjine +
+                  "总金额" +
+                  res[0].hanshuijine +
+                  "|计算值：" +
+                  (ztxqcbdh.B0002List[i].hanshuijine + res[0].yituizongjine) +
+                  "|对比值:" +
+                  res[0].hanshuijine
+              );
+            }
+            //判断本单据和上游子单据数量
+            if (ztxqcbdh.B0002List[i].ziduan3 + res[0].yituishuliang > res[0].shuliang) {
+              throw new Error(
+                "剩余未推数量不足，对应单据行第" +
+                  (i + 1) +
+                  "行" +
+                  "当前数量" +
+                  ztxqcbdh.B0002List[i].ziduan3 +
+                  ",未推数量" +
+                  res[0].weituishuliang +
+                  ",已推数量" +
+                  res[0].yituishuliang +
+                  "总数量" +
+                  res[0].shuliang +
+                  "|计算值:" +
+                  (ztxqcbdh.B0002List[i].ziduan3 + res[0].yituishuliang) +
+                  "|对比值" +
+                  res[0].shuliang
+              );
+            }
+          } else {
+            throw new Error("现有项目工作包无对应单据：第" + (i + 1) + "行");
+          }
+        }
+      }
+    }
+    return {};
+  }
+}

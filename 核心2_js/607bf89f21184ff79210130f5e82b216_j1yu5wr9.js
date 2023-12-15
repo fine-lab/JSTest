@@ -1,0 +1,36 @@
+let AbstractAPIHandler = require("AbstractAPIHandler");
+class MyAPIHandler extends AbstractAPIHandler {
+  execute(request) {
+    var ordCode = request.ordCode;
+    let func1 = extrequire("GT46163AT1.backDefaultGroup.getOpenApiToken");
+    let res = func1.execute(request);
+    var token = res.access_token;
+    //获取下游来源单据是否有上游单据
+    var body = {
+      pageSize: "10",
+      pageIndex: "1",
+      simpleVOs: {
+        value1: ordCode,
+        field: "srcBillNO",
+        op: "eq"
+      }
+    };
+    var requrl = "https://www.example.com/" + token;
+    var contenttype = "application/json;charset=UTF-8";
+    var message = "";
+    var header = {
+      "Content-Type": contenttype
+    };
+    let result = false;
+    var custResponse = postman("POST", requrl, JSON.stringify(header), JSON.stringify(body));
+    var custresponseobj = JSON.parse(custResponse);
+    if ("200" == custresponseobj.code) {
+      let rst = custresponseobj.data;
+      if (rst.recordCount > 0) {
+        result = true;
+      }
+    }
+    return { result };
+  }
+}
+exports({ entryPoint: MyAPIHandler });
